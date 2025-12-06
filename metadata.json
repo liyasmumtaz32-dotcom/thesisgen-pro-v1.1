@@ -1,0 +1,7 @@
+{
+  "name": "ThesisGen Pro V1.1",
+  "description": "An AI-powered academic thesis generator that assists students in creating structured drafts, finding references, and exporting formatted documents.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
