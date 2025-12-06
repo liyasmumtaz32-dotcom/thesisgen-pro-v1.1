@@ -32,31 +32,21 @@ export class GeminiService {
   private ai: GoogleGenAI;
 
   constructor() {
-    // Use the environment variable API Key
     this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
 
-  // Helper to repair truncated JSON arrays
   private tryParseJSON(text: string): any {
-    // Remove Markdown code fences if present (e.g. ```json ... ```)
     let cleanText = text.replace(/```json\n?|```/g, '').trim();
-
     try {
       return JSON.parse(cleanText);
     } catch (e) {
       console.warn("JSON Parse failed, attempting repair...", e);
-      
-      // Check if it looks like an array start
       if (cleanText.startsWith('[')) {
-        // Attempt to find the last valid closing object brace
         const lastBrace = cleanText.lastIndexOf('}');
         if (lastBrace !== -1) {
-          // Close the array manually
           const repaired = cleanText.substring(0, lastBrace + 1) + ']';
           try {
-            const result = JSON.parse(repaired);
-            console.log("JSON repaired successfully.");
-            return result;
+            return JSON.parse(repaired);
           } catch (e2) {
             console.error("JSON repair failed:", e2);
           }
@@ -70,7 +60,6 @@ export class GeminiService {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  // Wrapper to handle 429 Rate Limit errors
   private async generateWithRetry(
     operation: () => Promise<any>,
     retries = 3,
@@ -79,26 +68,16 @@ export class GeminiService {
     try {
       return await operation();
     } catch (error: any) {
-      // Check for 429 Resource Exhausted / Quota Exceeded
       if (retries > 0 && (error.status === 429 || error.code === 429 || error.message?.includes('429') || error.message?.includes('quota'))) {
-        
         let waitTime = defaultDelay;
-        
-        // Try to extract exact wait time from error message like "retry in 57.90s"
         const match = error.message?.match(/retry in (\d+\.?\d*)s/);
         if (match && match[1]) {
-           // Add 5 seconds buffer to be safe
            waitTime = Math.ceil(parseFloat(match[1]) * 1000) + 5000;
         }
-
         console.warn(`Rate limit hit. Waiting ${waitTime/1000}s before retry. Retries left: ${retries}`);
         await this.sleep(waitTime);
-        
-        // Retry with one less retry attempt
         return this.generateWithRetry(operation, retries - 1, defaultDelay * 1.5);
       }
-      
-      // Throw if not a 429 or no retries left
       throw error;
     }
   }
@@ -112,24 +91,18 @@ export class GeminiService {
     }));
 
     const prompt = `
-      Based on the Thesis Title: "${thesisData.title}" and the provided proposal documents, create a highly detailed Thesis Outline (Table of Contents).
+      Based on the Thesis Title: "${thesisData.title}" and the provided documents, create a strict Thesis Outline following **Universitas Terbuka (UT) Guidebook PTAP5406**.
       
-      Structure Requirements:
-      1. Create exactly 6 Chapters.
-      2. Chapters 1-5: Pendahuluan, Tinjauan Pustaka, Metode, Hasil, Kesimpulan.
-      3. **CHAPTER 6**: MUST be titled "LAMPIRAN" (Appendices).
-         - It must include sub-chapters for: "Instrumen Penelitian (Kisi-kisi)", "Data Mentah (Rekapitulasi Skor)", "Dokumentasi Kegiatan", "Surat Izin Penelitian".
-      
-      Content Guidelines:
-      - **CRITICAL**: Each Chapter (1-5) MUST have at least **5 to 7 sub-chapters**.
-      - Each sub-chapter must include 3-4 specific talking points.
-      - Chapter 3 MUST include specific section for "Instrumen Penelitian".
-      - Chapter 4 MUST include specific sections for "Deskripsi Data" and "Pembahasan".
+      Structure Requirements (Exactly 6 items in the array):
+      1. **BAB 1**: PENDAHULUAN (Subchapters: Latar Belakang, Identifikasi Masalah, Pembatasan Masalah, Rumusan Masalah, Tujuan Penelitian, Manfaat Penelitian).
+      2. **BAB 2**: KAJIAN PUSTAKA, KERANGKA BERPIKIR, DAN HIPOTESIS (Subchapters: Kajian Teori [Variabel X1, X2, Y], Penelitian Terdahulu, Kerangka Berpikir, Hipotesis).
+      3. **BAB 3**: METODE PENELITIAN (Subchapters: Jenis dan Desain, Tempat/Waktu, Populasi/Sampel, Definisi Operasional, Instrumen Penelitian [Validitas/Reliabilitas], Teknik Pengumpulan Data, Teknik Analisis Data).
+      4. **BAB 4**: HASIL DAN PEMBAHASAN (Subchapters: Deskripsi Data, Uji Prasyarat Analisis [Normalitas/Homogenitas], Pengujian Hipotesis, Pembahasan).
+      5. **BAB 5**: KESIMPULAN DAN SARAN (Subchapters: Kesimpulan, Saran).
+      6. **BAB 6**: LAMPIRAN (Subchapters: Kisi-kisi Instrumen, Instrumen Penelitian, Data Mentah [Tabulasi], Output Analisis Data, Dokumentasi).
 
       IMPORTANT:
-      - Keep titles CONCISE (max 15 words).
-      - Do NOT include descriptions, ONLY titles.
-      - Return ONLY the JSON array.
+      - Return ONLY the JSON array matching the schema.
     `;
 
     try {
@@ -157,7 +130,7 @@ export class GeminiService {
   }
 
   async findReferences(thesisData: ThesisData, chapterTitle: string): Promise<Reference[]> {
-    const query = `Latest academic journals, books, and papers about "${thesisData.title}" specifically focusing on "${chapterTitle}" methodology and theory.`;
+    const query = `Latest academic journals, books, and papers about "${thesisData.title}" specifically focusing on "${chapterTitle}". Universitas Terbuka format.`;
     
     try {
       const response = await this.generateWithRetry(() =>
@@ -183,13 +156,10 @@ export class GeminiService {
           }
         });
       }
-      
-      // Deduplicate
       return Array.from(new Set(references.map(r => r.uri)))
         .map(uri => references.find(r => r.uri === uri)!);
-
     } catch (error) {
-      console.warn("Reference search failed, proceeding without new references:", error);
+      console.warn("Reference search failed:", error);
       return [];
     }
   }
@@ -211,102 +181,93 @@ export class GeminiService {
     const referencesList = references.map(r => `- ${r.title} (${r.uri})`).join('\n');
     let fullChapterContent = "";
 
-    // Safely retrieve sub-chapters, defaulting to a basic structure if missing
     let subChapters = chapter.sub_chapters;
     if (!Array.isArray(subChapters) || subChapters.length === 0) {
-      subChapters = [{
-        sub_title: "Overview",
-        sub_sub_chapters: ["Introduction", "Discussion", "Summary"]
-      }];
+      subChapters = [{ sub_title: "General", sub_sub_chapters: [] }];
     }
-
-    const pageEstimate = CHAPTER_PAGE_ESTIMATES[chapter.chapter_number] || { min: 15, max: 20, desc: "General" };
-    const avgPages = (pageEstimate.min + pageEstimate.max) / 2;
-    const totalChapterWords = avgPages * WORDS_PER_PAGE;
-    const wordsPerSection = Math.round(totalChapterWords / subChapters.length);
     
     if (onProgress) onProgress(0, subChapters.length);
 
-    // Iterate through each sub-chapter
     for (const [index, subChapter] of subChapters.entries()) {
-      // Convert index 0 -> A, 1 -> B, etc.
-      const sectionLabel = String.fromCharCode(65 + index); // 65 is ASCII for 'A'
-      
-      // Format sub-sub-chapters as a numbered list for context
-      const pointsList = subChapter.sub_sub_chapters?.map((pt, i) => `${i + 1}. ${pt}`).join("\n") || "General discussion";
+      const sectionLabel = String.fromCharCode(65 + index); // A, B, C...
 
-      // --- CUSTOM INSTRUCTIONS FOR SPECIFIC CHAPTERS ---
       let specializedInstructions = "";
 
+      // --- INSTRUCTIONS FOR CHAPTER 3 (METHOD) ---
+      if (chapter.chapter_number === 3) {
+         specializedInstructions = `
+         **CHAPTER 3 REQUIREMENTS (Metode Penelitian):**
+         - Include a Markdown Table for "Definisi Operasional Variabel" (Columns: Variabel, Konsep, Indikator, Skala).
+         - Include formulas for Sampling (e.g. Slovin) if applicable.
+         - Mention Validity and Reliability testing formulas (e.g., Pearson Product Moment, Cronbach Alpha) using standard text/unicode formulas.
+         `;
+      }
+
+      // --- INSTRUCTIONS FOR CHAPTER 4 (RESULTS) ---
       if (chapter.chapter_number === 4) {
         specializedInstructions = `
-        **CHAPTER 4 MANDATORY REQUIREMENTS (Quantitative Results):**
-        1. **MARKDOWN TABLES**: You MUST generate Markdown tables to present the data.
-           - Create a "Table of Descriptive Statistics" (Mean, Median, SD for Pretest & Posttest).
-           - Create a "Table of Normality Test Results" (Shapiro-Wilk/Lilliefors with Sig. values).
-           - Create a "Table of Hypothesis Test Results" (t-test / ANOVA with t-count vs t-table).
-        2. **DIAGRAMS**: Since you cannot generate images, write a placeholder for diagrams.
-           - Example: "[GAMBAR 4.1: Diagram Batang Perbandingan Skor Pretest dan Posttest]" followed by a text description of what the diagram shows.
-        3. **FORMULAS**: You MUST include the mathematical formulas used for analysis in standard text or Unicode.
-           - Example: Include the formula for the t-test (t = ...), Regression (Y = a + bX), etc.
+        **CHAPTER 4 MANDATORY REQUIREMENTS (Hasil dan Pembahasan):**
+        1. **STATISTICAL TABLES**: You MUST generate Markdown tables for:
+           - "Tabel Statistik Deskriptif" (Mean, Median, Mode, SD, Min, Max).
+           - "Tabel Uji Normalitas" (Kolmogorov-Smirnov/Shapiro-Wilk result).
+           - "Tabel Uji Homogenitas".
+           - "Tabel Uji Hipotesis" (t-test or ANOVA results).
+        2. **FORMULAS**: Include the mathematical formulas used.
+           - Example: "Rumus Regresi Linier Sederhana: Y = a + bX"
+           - Example: "Rumus Uji-t: t = (M1 - M2) / ..."
+        3. **DIAGRAM PLACEHOLDERS**: Insert text like "[GAMBAR 4.1: Histogram Sebaran Data Pretest]" and describe it.
         `;
       }
 
+      // --- INSTRUCTIONS FOR CHAPTER 6 (APPENDICES) ---
       if (chapter.chapter_number === 6 || chapter.title.toUpperCase().includes("LAMPIRAN")) {
         specializedInstructions = `
-        **CHAPTER 6 (APPENDICES) MANDATORY REQUIREMENTS:**
-        1. **INSTRUMENTS**: Create a detailed "Kisi-Kisi Instrumen Penelitian" as a Markdown Table with columns: No | Variabel | Indikator | No Item.
-        2. **RAW DATA**: Create a "Rekapitulasi Data Skor Siswa" as a Markdown Table with dummy data for approx 15 students (Columns: No | Nama (Inisial) | Pretest | Posttest).
-        3. **FORMAT**: Ensure these look like professional appendices.
+        **CHAPTER 6 (LAMPIRAN) MANDATORY CONTENT:**
+        1. **Lampiran 1: Kisi-Kisi Instrumen**. Create a Markdown Table (Variabel | Indikator | No Item | Jumlah).
+        2. **Lampiran 2: Instrumen Penelitian**. Create sample Questionnaire items or Observation Checklists.
+        3. **Lampiran 3: Tabulasi Data Mentah**. Create a Markdown Table (No | Nama/Kode | Skor Pretest | Skor Posttest) for at least 15 students (Dummy Data).
+        4. **Lampiran 4: Hasil Output SPSS**. Create tables mimicking SPSS output for Validity, Reliability, and Regression.
+        5. **Format**: Use clear headings "Lampiran 1", "Lampiran 2", etc.
         `;
       }
 
       const prompt = `
         You are writing Sub-Chapter ${sectionLabel} ("${subChapter.sub_title}") for Chapter ${chapter.chapter_number} (${chapter.title}) of the Thesis: "${thesisData.title}".
+        This MUST follow the **Universitas Terbuka (UT)** academic style.
 
-        **HIERARCHY & STRUCTURE INSTRUCTIONS**:
-        1. This is Sub-Chapter **${sectionLabel}**.
-        2. Inside this Sub-Chapter, you MUST cover the following Sub-Sub-Chapters (Points):
-           ${pointsList}
-        3. **FORMAT**: 
-           - Start the text directly. Do NOT write the Sub-Chapter Title again (I will add it automatically).
-           - Use **Numbered Sub-Headings** (e.g., "1. [Point Name]", "2. [Point Name]") to structure the text.
-           - **CITATION**: Use in-text citations (Author, Year).
-
+        **STRUCTURE**:
+        1. Sub-Chapter: **${sectionLabel}. ${subChapter.sub_title}**.
+        2. Content: Cover the specific points: ${subChapter.sub_sub_chapters?.join(", ")}.
+        3. **Formatting**:
+           - Use **Numbered Sub-Headings** (1., 2., 3.) for details.
+           - **Tables**: Use Markdown tables (| Col | Col |) for ALL data presentation.
+        
         ${specializedInstructions}
 
-        **CONTENT REQUIREMENTS**:
-        - Target Length: ~${wordsPerSection} words.
-        - Style: Formal Indonesian academic language (Bahasa baku).
-        - Depth: Be analytical, critical, and verbose.
-        - References: Use the provided references where appropriate.
+        **STYLE**:
+        - Formal Indonesian (Bahasa Baku).
+        - No Markdown bold/italic in body text (plain text preferred for DOCX conversion), EXCEPT for Tables.
+        - Paragraphs should be indented (simulated by structure).
 
-        References:
+        References to use:
         ${referencesList}
-
-        Prohibited: Do NOT use Markdown formatting like **, ##, *, _. **EXCEPTION**: You MUST use Markdown for Tables (| Col | Col |).
       `;
 
       try {
-        if (index > 0) await this.sleep(4000);
+        if (index > 0) await this.sleep(4000); // Rate limit spacing
 
         const response = await this.generateWithRetry(() => 
           this.ai.models.generateContent({
             model: 'gemini-2.5-flash', 
             contents: { parts: [...fileParts, { text: prompt }] },
-            config: { temperature: 0.6, maxOutputTokens: 8192 }
+            config: { temperature: 0.5, maxOutputTokens: 8192 }
           })
         );
 
         let sectionText = response.text || "";
-        // We allow some markdown now for tables, so we only strip non-table markdown if needed, 
-        // but broadly cleaning * and # is usually safe for academic text, EXCEPT inside tables.
-        // Let's only strip bold/italic markers but keep table structure (| and -).
-        sectionText = sectionText.replace(/(\*\*|__)/g, ''); // Remove bold
-        sectionText = sectionText.replace(/(^|\s)(#+)(\s|$)/g, '$1$3'); // Remove heading hashes but keep text
+        // Clean up bolding that might break docx flow, but keep tables
+        sectionText = sectionText.replace(/(\*\*|__)(.*?)\1/g, '$2'); 
 
-        // Manually Construct the Heading Hierarchy in the Output String
-        // Format: "A. TITLE" followed by content
         fullChapterContent += `\n\n${sectionLabel}. ${subChapter.sub_title.toUpperCase()}\n${sectionText}`;
         
       } catch (error) {
@@ -317,15 +278,14 @@ export class GeminiService {
       }
     }
 
-    // --- APPEND REFERENCES FOR THIS CHAPTER ---
-    if (references.length > 0) {
+    // Add references at end of chapter if not Appendices
+    if (references.length > 0 && chapter.chapter_number < 6) {
         fullChapterContent += `\n\nDAFTAR REFERENSI BAB ${chapter.chapter_number}\n`;
         references.forEach((ref, idx) => {
-             fullChapterContent += `${idx + 1}. ${ref.title}. Tersedia di: ${ref.uri}\n`;
+             fullChapterContent += `${idx + 1}. ${ref.title}\n`;
         });
     }
 
-    if (!fullChapterContent) return "Failed to generate content for this chapter.";
     return fullChapterContent;
   }
 }

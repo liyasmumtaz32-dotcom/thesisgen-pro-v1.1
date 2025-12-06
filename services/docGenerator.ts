@@ -1,6 +1,19 @@
 
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, BorderStyle, WidthType, ShadingType, VerticalAlign, Footer, IParagraphOptions } from "docx";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, BorderStyle, WidthType, ShadingType, VerticalAlign, Footer, Header } from "docx";
 import { ThesisData, Chapter, Reference } from "../types";
+
+// --- CONSTANTS FOR UT STYLE ---
+const FONT_FAMILY = "Times New Roman";
+const FONT_SIZE_TEXT = 24; // 12pt (docx uses half-points)
+const FONT_SIZE_TITLE = 28; // 14pt for Cover
+const MARGINS = {
+    top: "3cm",
+    bottom: "3cm",
+    left: "4cm", // 4cm Left margin
+    right: "3cm"
+};
+const LINE_SPACING = 480; // ~2.0 spacing (240 * 2)
+const TABLE_SPACING = 240; // 1.0 spacing for tables
 
 // --- HELPER: Markdown Table Parser ---
 const createTableFromMarkdown = (markdownTable: string): Table | null => {
@@ -9,21 +22,12 @@ const createTableFromMarkdown = (markdownTable: string): Table | null => {
     if (lines.length < 2) return null;
 
     const separatorIdx = lines.findIndex(line => /^\|?[\s\-:|]+\|?$/.test(line.trim()));
-    
     if (separatorIdx === -1) {
         if (!lines[0].includes('|')) return null; 
     }
 
-    let headerRowText: string | null = null;
-    let bodyRowsText: string[] = [];
-
-    if (separatorIdx > 0) {
-        headerRowText = lines[separatorIdx - 1];
-        bodyRowsText = lines.slice(separatorIdx + 1);
-    } else {
-        headerRowText = lines[0];
-        bodyRowsText = lines.slice(1);
-    }
+    let headerRowText = separatorIdx > 0 ? lines[separatorIdx - 1] : lines[0];
+    let bodyRowsText = separatorIdx > 0 ? lines.slice(separatorIdx + 1) : lines.slice(1);
 
     const parseRow = (rowStr: string): string[] => {
         let clean = rowStr.trim();
@@ -34,46 +38,42 @@ const createTableFromMarkdown = (markdownTable: string): Table | null => {
 
     const docxRows: TableRow[] = [];
 
-    if (headerRowText) {
-        const headerCells = parseRow(headerRowText);
-        docxRows.push(new TableRow({
-            tableHeader: true,
-            children: headerCells.map(text => new TableCell({
-                children: [new Paragraph({
-                    children: [new TextRun({ text, bold: true })],
-                    alignment: AlignmentType.CENTER
-                })],
-                shading: {
-                    fill: "F3F4F6",
-                    type: ShadingType.CLEAR,
-                    color: "auto",
-                },
-                verticalAlign: VerticalAlign.CENTER,
-                margins: { top: 120, bottom: 120, left: 120, right: 120 },
-                borders: {
-                    top: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-                    bottom: { style: BorderStyle.SINGLE, size: 8, color: "000000" },
-                    left: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-                    right: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-                },
-            }))
-        }));
-    }
+    // Header
+    const headerCells = parseRow(headerRowText);
+    docxRows.push(new TableRow({
+        tableHeader: true,
+        children: headerCells.map(text => new TableCell({
+            children: [new Paragraph({
+                children: [new TextRun({ text, bold: true, font: FONT_FAMILY, size: FONT_SIZE_TEXT })],
+                alignment: AlignmentType.CENTER,
+                spacing: { line: TABLE_SPACING }
+            })],
+            shading: { fill: "E5E7EB", type: ShadingType.CLEAR, color: "auto" },
+            verticalAlign: VerticalAlign.CENTER,
+            borders: {
+                top: { style: BorderStyle.SINGLE, size: 2 },
+                bottom: { style: BorderStyle.SINGLE, size: 2 },
+                left: { style: BorderStyle.SINGLE, size: 2 },
+                right: { style: BorderStyle.SINGLE, size: 2 },
+            },
+        }))
+    }));
 
+    // Body
     bodyRowsText.forEach(rowStr => {
         if (!rowStr.trim() || /^\|?[\s\-:|]+\|?$/.test(rowStr.trim())) return;
-
         const cells = parseRow(rowStr);
         docxRows.push(new TableRow({
             children: cells.map(text => new TableCell({
-                children: [new Paragraph({ text })],
-                verticalAlign: VerticalAlign.CENTER,
-                margins: { top: 100, bottom: 100, left: 100, right: 100 },
+                children: [new Paragraph({ 
+                    children: [new TextRun({ text, font: FONT_FAMILY, size: FONT_SIZE_TEXT })],
+                    spacing: { line: TABLE_SPACING } 
+                })],
                 borders: {
-                    top: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-                    bottom: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-                    left: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-                    right: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
+                    top: { style: BorderStyle.SINGLE, size: 2 },
+                    bottom: { style: BorderStyle.SINGLE, size: 2 },
+                    left: { style: BorderStyle.SINGLE, size: 2 },
+                    right: { style: BorderStyle.SINGLE, size: 2 },
                 },
             }))
         }));
@@ -82,17 +82,8 @@ const createTableFromMarkdown = (markdownTable: string): Table | null => {
     return new Table({
       rows: docxRows,
       width: { size: 100, type: WidthType.PERCENTAGE },
-      borders: {
-        top: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-        bottom: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-        left: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-        right: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-        insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-        insideVertical: { style: BorderStyle.SINGLE, size: 2, color: "000000" },
-      }
     });
   } catch (e) {
-    console.error("Failed to parse markdown table", e);
     return null;
   }
 };
@@ -100,18 +91,30 @@ const createTableFromMarkdown = (markdownTable: string): Table | null => {
 // --- HELPER: Content Formatter ---
 const formatChapterContent = (chapter: Chapter): (Paragraph | Table)[] => {
     const rawContent = chapter.content || "";
-    // Split by single newline to check every line for formatting
     const contentLines = rawContent.split('\n');
-
     const docElements: (Paragraph | Table)[] = [];
     let currentTableBuffer: string[] = [];
 
-    // Process lines
+    // HEADERS
+    docElements.push(
+        new Paragraph({
+            text: chapter.chapter_number === 6 ? "LAMPIRAN" : `BAB ${chapter.chapter_number}`,
+            heading: HeadingLevel.HEADING_1,
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 0, after: 240 },
+        }),
+        new Paragraph({
+            text: chapter.title.toUpperCase(),
+            heading: HeadingLevel.HEADING_1,
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 480 },
+        })
+    );
+
     for (let i = 0; i < contentLines.length; i++) {
         let line = contentLines[i].trim();
         
         if (line.length === 0) {
-            // If we have a table buffer, process it
             if (currentTableBuffer.length > 0) {
                  const table = createTableFromMarkdown(currentTableBuffer.join('\n'));
                  if (table) docElements.push(table);
@@ -120,214 +123,145 @@ const formatChapterContent = (chapter: Chapter): (Paragraph | Table)[] => {
             continue; 
         }
 
-        // Table Detection
         if (line.startsWith('|')) {
             currentTableBuffer.push(line);
             continue;
         } else if (currentTableBuffer.length > 0) {
-             // End of table block
              const table = createTableFromMarkdown(currentTableBuffer.join('\n'));
              if (table) docElements.push(table);
              currentTableBuffer = [];
         }
 
-        // --- HEADING LOGIC ---
-        
-        // Level 2: Sub-Chapter (e.g., "A. LATAR BELAKANG")
-        // Logic: Starts with Single Letter + Dot + Space
+        // Sub-Chapters (A. JUDUL)
         if (/^[A-Z]\.\s/.test(line)) {
             docElements.push(new Paragraph({
-                text: line,
-                heading: HeadingLevel.HEADING_2,
-                spacing: { before: 240, after: 120 },
+                children: [new TextRun({ text: line, font: FONT_FAMILY, size: FONT_SIZE_TEXT, bold: true })],
+                spacing: { before: 240, after: 120, line: LINE_SPACING },
                 alignment: AlignmentType.LEFT
             }));
             continue;
         }
 
-        // Level 3: Sub-Sub-Chapter (e.g., "1. Identifikasi Masalah")
-        // Logic: Starts with Number + Dot + Space, and length is reasonably short (likely a title)
-        if (/^\d+\.\s/.test(line) && line.length < 100) {
+        // Sub-Sub-Chapters (1. Judul)
+        if (/^\d+\.\s/.test(line) && line.length < 80) {
              docElements.push(new Paragraph({
-                text: line,
-                heading: HeadingLevel.HEADING_3, // Or just bold text
-                spacing: { before: 120, after: 60 },
-                indent: { left: 720, hanging: 360 } // Indent for hierarchy
+                children: [new TextRun({ text: line, font: FONT_FAMILY, size: FONT_SIZE_TEXT, bold: true })],
+                spacing: { before: 120, after: 0, line: LINE_SPACING },
+                indent: { left: 720, hanging: 360 } 
             }));
             continue;
         }
 
-        // Level 3 (Alternative): Numbered List in text (Longer text)
-        // Logic: Starts with Number + Dot + Space, but long -> likely content list
-        if (/^\d+\.\s/.test(line) && line.length >= 100) {
-            const [num, ...rest] = line.split('.');
-            const textContent = rest.join('.').trim();
-            
-            docElements.push(new Paragraph({
-               children: [
-                   new TextRun({ text: num + ". ", bold: true }),
-                   new TextRun({ text: textContent })
-               ],
-               alignment: AlignmentType.JUSTIFIED,
-               spacing: { line: 360, after: 120 },
-               indent: { left: 720, hanging: 360 }
-            }));
-            continue;
-        }
-        
-        // Reference Header Detection (Added for styling reference section in chapter)
-        if (line.startsWith("DAFTAR REFERENSI BAB")) {
-             docElements.push(new Paragraph({
-                text: line,
-                heading: HeadingLevel.HEADING_2,
-                alignment: AlignmentType.LEFT,
-                spacing: { before: 400, after: 200 },
-             }));
-             continue;
-        }
-
-        // Standard Paragraph
+        // Regular Text (Indent start of paragraph 5 spaces/approx 0.7cm)
         docElements.push(new Paragraph({
-            text: line,
+            children: [new TextRun({ text: line, font: FONT_FAMILY, size: FONT_SIZE_TEXT })],
             alignment: AlignmentType.JUSTIFIED,
-            spacing: { line: 360, after: 120 }, // 1.5 line spacing
+            spacing: { line: LINE_SPACING, after: 0 },
+            indent: { firstLine: 720 } // Indent first line of paragraph
         }));
     }
 
-    // Flush remaining table buffer
     if (currentTableBuffer.length > 0) {
         const table = createTableFromMarkdown(currentTableBuffer.join('\n'));
         if (table) docElements.push(table);
     }
 
-    return [
-        new Paragraph({
-            text: `BAB ${chapter.chapter_number}`,
-            heading: HeadingLevel.HEADING_1,
-            alignment: AlignmentType.CENTER,
-        }),
-        new Paragraph({
-            text: chapter.title.toUpperCase(),
-            heading: HeadingLevel.HEADING_1,
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 300 },
-        }),
-        ...docElements,
-        new Paragraph({
-            text: "",
-            pageBreakBefore: true,
-        }),
-    ];
+    docElements.push(new Paragraph({ text: "", pageBreakBefore: true }));
+    return docElements;
 };
 
-// --- HELPER: Title Page ---
+// --- HELPER: Title Page (UT Style) ---
 const createTitlePage = (thesisData: ThesisData): Paragraph[] => {
     return [
         new Paragraph({
-            text: "HALAMAN JUDUL",
-            heading: HeadingLevel.HEADING_1,
+            children: [new TextRun({ text: "TUGAS AKHIR PROGRAM MAGISTER", font: FONT_FAMILY, size: FONT_SIZE_TITLE, bold: true })],
             alignment: AlignmentType.CENTER,
-            spacing: { after: 300 },
+            spacing: { before: 1200, after: 480 },
         }),
         new Paragraph({
-            children: [
-                new TextRun({
-                    text: thesisData.title.toUpperCase(),
-                    bold: true,
-                }),
-            ],
+            children: [new TextRun({ text: thesisData.title.toUpperCase(), font: FONT_FAMILY, size: FONT_SIZE_TITLE, bold: true })],
             alignment: AlignmentType.CENTER,
-            spacing: { after: 300 },
+            spacing: { after: 800 },
         }),
-        new Paragraph({
-            text: "Disusun Sebagai Syarat Kelulusan Oleh:",
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 500, after: 100 },
-        }),
-        new Paragraph({
-            children: [
-                new TextRun({
-                    text: `${thesisData.studentName} (${thesisData.studentId})`,
-                    bold: true,
-                }),
-            ],
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 500 },
-        }),
-        new Paragraph({
-            text: thesisData.program.toUpperCase(),
+         new Paragraph({
+            children: [new TextRun({ text: "Tujuan penyusunan TAPM sebagai salah satu syarat untuk memperoleh", font: FONT_FAMILY, size: FONT_SIZE_TEXT })],
             alignment: AlignmentType.CENTER,
         }),
         new Paragraph({
-            text: thesisData.faculty.toUpperCase(),
+            children: [new TextRun({ text: "gelar Magister pada program studi " + thesisData.program, font: FONT_FAMILY, size: FONT_SIZE_TEXT })],
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 1200 },
+        }),
+        // Logo Placeholder
+        new Paragraph({
+            children: [new TextRun({ text: "(LOGO UNIVERSITAS TERBUKA)", font: FONT_FAMILY, size: FONT_SIZE_TEXT, bold: true })],
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 1200 },
+        }),
+        new Paragraph({
+            children: [new TextRun({ text: "Disusun Oleh:", font: FONT_FAMILY, size: FONT_SIZE_TEXT })],
             alignment: AlignmentType.CENTER,
         }),
         new Paragraph({
-            children: [
-                new TextRun({
-                    text: thesisData.university.toUpperCase(),
-                    bold: true,
-                }),
-            ],
+            children: [new TextRun({ text: thesisData.studentName, font: FONT_FAMILY, size: FONT_SIZE_TEXT, bold: true })],
             alignment: AlignmentType.CENTER,
         }),
         new Paragraph({
-            text: new Date().getFullYear().toString(),
+            children: [new TextRun({ text: "NIM. " + thesisData.studentId, font: FONT_FAMILY, size: FONT_SIZE_TEXT })],
             alignment: AlignmentType.CENTER,
-            spacing: { after: 300 },
-            pageBreakBefore: false, // Ensure title page content stays together
+            spacing: { after: 800 },
         }),
         new Paragraph({
-            text: "",
-            pageBreakBefore: true,
+            children: [new TextRun({ text: thesisData.faculty.toUpperCase(), font: FONT_FAMILY, size: FONT_SIZE_TITLE, bold: true })],
+            alignment: AlignmentType.CENTER,
         }),
+        new Paragraph({
+            children: [new TextRun({ text: thesisData.university.toUpperCase(), font: FONT_FAMILY, size: FONT_SIZE_TITLE, bold: true })],
+            alignment: AlignmentType.CENTER,
+        }),
+        new Paragraph({
+            children: [new TextRun({ text: new Date().getFullYear().toString(), font: FONT_FAMILY, size: FONT_SIZE_TITLE, bold: true })],
+            alignment: AlignmentType.CENTER,
+            pageBreakBefore: false,
+        }),
+        new Paragraph({ text: "", pageBreakBefore: true }),
     ];
 };
 
-// --- EXPORT: Generate RIS File (Research Information Systems) ---
 export const generateRISBlob = (references: Reference[]): Blob => {
     const risLines: string[] = [];
-
     references.forEach(ref => {
-        // Basic RIS format
-        // TY - Type (GEN = Generic, JOUR = Journal, BOOK = Book)
-        // TI - Title
-        // UR - URL
-        // ER - End of Record
-        
-        // Simple heuristic: if it has common book publisher names, treat as book, else generic
         const type = /press|publishing|pustaka|buk/i.test(ref.title) ? 'BOOK' : 'GEN';
-        
         risLines.push(`TY  - ${type}`);
         risLines.push(`TI  - ${ref.title}`);
-        
-        // Try to extract year if possible
         const yearMatch = ref.title.match(/\b(19|20)\d{2}\b/);
-        if (yearMatch) {
-            risLines.push(`PY  - ${yearMatch[0]}`);
-        }
-        
-        if (ref.uri) {
-            risLines.push(`UR  - ${ref.uri}`);
-        }
-        
+        if (yearMatch) risLines.push(`PY  - ${yearMatch[0]}`);
+        if (ref.uri) risLines.push(`UR  - ${ref.uri}`);
         risLines.push('ER  - ');
-        risLines.push(''); // Empty line between records
+        risLines.push('');
     });
-
     return new Blob([risLines.join('\n')], { type: 'application/x-research-info-systems' });
 };
 
-// --- EXPORT: Generate Single Chapter DOCX ---
 export const generateSingleChapterDocx = async (thesisData: ThesisData, chapter: Chapter): Promise<Blob> => {
     const doc = new Document({
+        styles: {
+            default: {
+                document: {
+                    run: { font: FONT_FAMILY, size: FONT_SIZE_TEXT },
+                    paragraph: { spacing: { line: LINE_SPACING } }
+                },
+                heading1: { run: { font: FONT_FAMILY, size: FONT_SIZE_TITLE, bold: true, allCaps: true } },
+                heading2: { run: { font: FONT_FAMILY, size: FONT_SIZE_TEXT, bold: true } },
+                heading3: { run: { font: FONT_FAMILY, size: FONT_SIZE_TEXT, bold: true } }
+            }
+        },
         sections: [
             {
                 properties: {
-                    page: { margin: { top: "3cm", bottom: "3cm", left: "4cm", right: "4cm" } },
+                    page: { margin: MARGINS },
                 },
                 children: [
-                    ...createTitlePage(thesisData), // Optional: Keep title page for context
                     ...formatChapterContent(chapter)
                 ],
             },
@@ -336,31 +270,38 @@ export const generateSingleChapterDocx = async (thesisData: ThesisData, chapter:
     return await Packer.toBlob(doc);
 };
 
-// --- EXPORT: Generate Full Thesis DOCX ---
 export const generateDocxBlob = async (thesisData: ThesisData, chapters: Chapter[], references: Reference[]): Promise<Blob> => {
   const sortedReferences = [...references].sort((a, b) => a.title.localeCompare(b.title));
 
   const doc = new Document({
+    styles: {
+            default: {
+                document: {
+                    run: { font: FONT_FAMILY, size: FONT_SIZE_TEXT },
+                    paragraph: { spacing: { line: LINE_SPACING } }
+                },
+            }
+    },
     sections: [
       {
         properties: {
-          page: { margin: { top: "3cm", bottom: "3cm", left: "4cm", right: "4cm" } },
+          page: { margin: MARGINS },
         },
-        footers: {
-            default: new Footer({
+        headers: {
+            default: new Header({
                 children: [
                     new Paragraph({
-                        alignment: AlignmentType.CENTER,
-                        children: [new TextRun({ children: ["Page ", "PAGE", " of ", "NUMPAGES"] })],
-                    }),
-                ],
-            }),
+                        children: [new TextRun({ children: ["Page ", "PAGE"] })],
+                        alignment: AlignmentType.RIGHT, // Top Right as per Content Section guide
+                    })
+                ]
+            })
         },
         children: [
           // 1. Title Page
           ...createTitlePage(thesisData),
 
-          // 2. TOC Placeholder
+          // 2. DAFTAR ISI Placeholder
           new Paragraph({
              text: "DAFTAR ISI",
              heading: HeadingLevel.HEADING_1,
@@ -370,20 +311,16 @@ export const generateDocxBlob = async (thesisData: ThesisData, chapters: Chapter
           new Paragraph({
              children: [
                 new TextRun({
-                    text: "(Table of Contents will be auto-generated in Word. Right-click here and select 'Update Field')",
+                    text: "(Halaman ini akan diisi otomatis oleh Microsoft Word. Klik Kanan > Update Field)",
                     italics: true,
+                    size: 20
                 })
              ],
              alignment: AlignmentType.CENTER,
           }),
-          ...chapters.map(c => new Paragraph({
-             text: `BAB ${c.chapter_number} ${c.title.toUpperCase()}`,
-             tabStops: [{ type: "right", position: 9000, leader: "dot" }],
-             children: [new TextRun({ text: "\t" })] 
-          })),
           new Paragraph({ text: "", pageBreakBefore: true }),
 
-          // 3. Chapters Content
+          // 3. Chapters Content (Including Ch 6 Lampiran)
           ...chapters.flatMap(formatChapterContent),
 
           // 4. Bibliography
@@ -394,21 +331,13 @@ export const generateDocxBlob = async (thesisData: ThesisData, chapters: Chapter
             spacing: { after: 300 },
           }),
           ...sortedReferences.map(ref => {
-            let citationText = ref.title;
-            const isUrl = ref.uri.startsWith('http');
-            if (isUrl && !citationText.includes(ref.uri) && citationText.length < 100) {
-                 citationText += `. Tersedia di: ${ref.uri}`;
-            }
             return new Paragraph({
-                text: citationText,
+                children: [new TextRun({ text: ref.title, font: FONT_FAMILY, size: FONT_SIZE_TEXT })],
                 alignment: AlignmentType.LEFT,
-                spacing: { after: 120 },
+                spacing: { line: 240, after: 240 }, // Single spacing for Bib
                 indent: { hanging: 720 },
             });
           }),
-          
-          // Note: Appendices (Lampiran) are now expected to be generated as Chapter 6 in the chapters array,
-          // so no hardcoded section is needed here.
         ],
       },
     ],
